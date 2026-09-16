@@ -112,7 +112,9 @@ document.getElementById('reportForm').addEventListener('submit', async function(
     return;
   }
 
-  const session = DB.getSession();
+  // A sessão pode ter expirado ou ainda não ter sido confirmada com o
+  // servidor — reconfirma aqui em vez de confiar só no valor em memória.
+  const session = await DB.loadSession();
   if (!session) {
     showToast('Faça login para registrar uma denúncia.', 'warning');
     setTimeout(() => window.location.href = 'login.html', 1500);
@@ -134,10 +136,11 @@ document.getElementById('reportForm').addEventListener('submit', async function(
   };
 
   const saveReport = async (coords, photoBase64) => {
+    // userId/userName não precisam mais ser enviados: o servidor pega
+    // isso da sessão (cookie), evitando que alguém se passe por outro.
     const result = await DB.addReport({
       lat: coords.lat, lng: coords.lng,
-      level, category, info, photoBase64,
-      userId: session.id, userName: session.name
+      level, category, info, photoBase64
     });
 
     if (result.ok) {
@@ -284,7 +287,7 @@ legend.addTo(map);
 // ── MENU LATERAL ─────────────────────────────────────────────
 // O auth.js já cuida do toggle (open/close) e do tema.
 // Aqui só injetamos o link de admin se for admin.
-(function injectAdminLink() {
+function injectAdminLink() {
   const session = DB.getSession();
   if (!session || session.role !== 'admin') return;
 
@@ -297,7 +300,13 @@ legend.addTo(map);
   adminA.innerHTML = '<span class="nav-icon">⚙️</span> Painel Admin';
   adminA.style.cssText = 'color:#ff9800;font-weight:700;';
   nav.appendChild(adminA);
-})();
+}
 
 // ── INICIALIZAR ───────────────────────────────────────────────
-loadReports();
+// Espera a sessão ser confirmada com o servidor (cookie httpOnly) antes
+// de qualquer coisa que dependa de saber se o usuário está logado.
+(async function init() {
+  await DB.loadSession();
+  injectAdminLink();
+  loadReports();
+})();
