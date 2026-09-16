@@ -1,5 +1,3 @@
-
-
 // ── TOAST ─────────────────────────────────────────────────────
 function showToast(msg, type = 'info', duration = 3500) {
   let container = document.getElementById('toastContainer');
@@ -20,7 +18,7 @@ function showToast(msg, type = 'info', duration = 3500) {
 }
 
 // ── MENU LATERAL ──────────────────────────────────────────────
-function initMenu() {
+async function initMenu() {
   const menuBtn  = document.getElementById('menuToggle');
   const sideMenu = document.getElementById('sideMenu');
   if (!menuBtn || !sideMenu) return; // página sem menu — sai
@@ -54,7 +52,8 @@ function initMenu() {
   });
 
   // ── Sessão ──────────────────────────────────────────────────
-  const session = DB.getSession();
+  // Confirma com o servidor (cookie httpOnly) antes de decidir o que mostrar.
+  const session = await DB.loadSession();
 
   if (userInfoEl) {
     if (session) {
@@ -83,8 +82,8 @@ function initMenu() {
   }
 
   if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      DB.logout();
+    logoutBtn.addEventListener('click', async () => {
+      await DB.logout();
       window.location.href = 'login.html';
     });
   }
@@ -111,6 +110,6 @@ function initTheme() {
 
 // ── INICIALIZA AO CARREGAR ────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  initMenu();
+  initMenu();   // assíncrona — o menu "pisca" Visitante um instante e depois atualiza
   initTheme();
 });
