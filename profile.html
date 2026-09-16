@@ -86,13 +86,16 @@
 <script src="api.js"></script>
 <script src="auth.js"></script>
 <script>
-  const session = DB.getSession();
-  if (!session) { window.location.href = 'login.html'; }
-
   // ← tudo dentro de async para poder usar await
   async function loadProfile() {
-    const user    = await DB.getUserById(session.id);   // ← await corrigido
-    const reports = await DB.getReportsByUser(session.id); // ← await + método correto
+    // Confirma a sessão com o servidor (cookie httpOnly) antes de decidir
+    // se redireciona. Nada de checar DB.getSession() antes disso — a
+    // sessão em memória só existe DEPOIS desse await.
+    const session = await DB.loadSession();
+    if (!session) { window.location.href = 'login.html'; return; }
+
+    const user    = await DB.getUserById(session.id);
+    const reports = await DB.getReportsByUser(session.id);
 
     // Perfil
     document.getElementById('profileAvatar').textContent =
@@ -135,8 +138,8 @@
 
   loadProfile();
 
-  document.getElementById('logoutBtnProfile').addEventListener('click', () => {
-    DB.logout();
+  document.getElementById('logoutBtnProfile').addEventListener('click', async () => {
+    await DB.logout();
     window.location.href = 'login.html';
   });
 </script>

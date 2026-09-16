@@ -1,58 +1,91 @@
 // firereports-backend/config/database.js
-// Conexão com PostgreSQL + todas as funções que antes falavam com o Supabase.
-import pg from 'pg';
+// Banco de dados 100% local: SQLite embutido no próprio Node (node:sqlite).
+// Nenhum serviço externo, nenhuma API de terceiro, nenhuma internet necessária.
+// O banco fica salvo como um arquivo: firereports-backend/data/firereports.db
+import { DatabaseSync } from 'node:sqlite';
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 
-const { Pool } = pg;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR  = path.join(__dirname, '..', 'data');
+const DB_PATH   = path.join(DATA_DIR, 'firereports.db');
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.PGSSL === 'true' ? { rejectUnauthorized: false } : false,
-  max: 10,
-  idleTimeoutMillis: 30000
-});
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-async function query(text, params = []) {
-  const res = await pool.query(text, params);
-  return res.rows;
+const db = new DatabaseSync(DB_PATH);
+
+// ── ESQUEMA (criado automaticamente se não existir) ────────────
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    email      TEXT NOT NULL UNIQUE,
+    cpf        TEXT NOT NULL UNIQUE,
+    password   TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'user',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS reports (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT,
+    user_name  TEXT,
+    lat        REAL NOT NULL,
+    lng        REAL NOT NULL,
+    level      TEXT,
+    category   TEXT,
+    info       TEXT NOT NULL DEFAULT '',
+    photo_url  TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports (created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_reports_user_id    ON reports (user_id);
+`);
+
+// Gera um id único simples (sem depender de nenhuma lib externa de uuid)
+function newId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
-const PUBLIC_USER = 'id, name, email, cpf, role, created_at';
+const PUBLIC_USER_COLS = 'id, name, email, cpf, role, created_at';
 
 export const DB = {
   // ── USUÁRIOS ──────────────────────────────────────────────
   async createUser({ name, email, cpf, password }) {
     try {
-      const dup = await query(
-        `SELECT email, cpf FROM users WHERE email = $1 OR cpf = $2 LIMIT 1`,
-        [email, cpf]
-      );
-      if (dup.length) {
-        return dup[0].email === email
+      const dup = db.prepare(
+        `SELECT email, cpf FROM users WHERE email = ? OR cpf = ? LIMIT 1`
+      ).get(email, cpf);
+
+      if (dup) {
+        return dup.email === email
           ? { ok: false, msg: 'E-mail já cadastrado.' }
           : { ok: false, msg: 'CPF já cadastrado.' };
       }
 
       const hash = await bcrypt.hash(password, 10);
-      const rows = await query(
-        `INSERT INTO users (name, email, cpf, password)
-         VALUES ($1, $2, $3, $4)
-         RETURNING ${PUBLIC_USER}`,
-        [name, email, cpf, hash]
-      );
-      return { ok: true, user: rows[0] };
+      const id   = newId();
+
+      db.prepare(
+        `INSERT INTO users (id, name, email, cpf, password) VALUES (?, ?, ?, ?, ?)`
+      ).run(id, name, email, cpf, hash);
+
+      const user = db.prepare(`SELECT ${PUBLIC_USER_COLS} FROM users WHERE id = ?`).get(id);
+      return { ok: true, user };
     } catch (e) {
-      if (e.code === '23505') return { ok: false, msg: 'E-mail ou CPF já cadastrado.' };
       return { ok: false, msg: e.message };
     }
   },
 
   async loginUser(email, password) {
     try {
-      const rows = await query(`SELECT * FROM users WHERE email = $1`, [email]);
-      if (!rows.length) return { ok: false, msg: 'E-mail ou senha incorretos.' };
+      const user = db.prepare(`SELECT * FROM users WHERE email = ?`).get(email);
+      if (!user) return { ok: false, msg: 'E-mail ou senha incorretos.' };
 
-      const user = rows[0];
       const valid = await bcrypt.compare(password, user.password);
       if (!valid) return { ok: false, msg: 'E-mail ou senha incorretos.' };
 
@@ -65,29 +98,29 @@ export const DB = {
 
   async getUserById(id) {
     try {
-      const rows = await query(`SELECT ${PUBLIC_USER} FROM users WHERE id = $1`, [id]);
-      return rows[0] || null;
+      return db.prepare(`SELECT ${PUBLIC_USER_COLS} FROM users WHERE id = ?`).get(id) || null;
     } catch { return null; }
   },
 
   async getAllUsers() {
     try {
-      return await query(
+      return db.prepare(
         `SELECT id, name, email, created_at FROM users ORDER BY created_at DESC`
-      );
+      ).all();
     } catch { return []; }
   },
 
   // ── DENÚNCIAS ─────────────────────────────────────────────
   async addReport({ lat, lng, level, category, info, photoUrl, userId, userName }) {
     try {
-      const rows = await query(
-        `INSERT INTO reports (user_id, user_name, lat, lng, level, category, info, photo_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [userId, userName, lat, lng, level, category, info || '', photoUrl || null]
-      );
-      return { ok: true, report: rows[0] };
+      const id = newId();
+      db.prepare(`
+        INSERT INTO reports (id, user_id, user_name, lat, lng, level, category, info, photo_url)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, userId, userName, lat, lng, level, category, info || '', photoUrl || null);
+
+      const report = db.prepare(`SELECT * FROM reports WHERE id = ?`).get(id);
+      return { ok: true, report };
     } catch (e) {
       return { ok: false, msg: e.message };
     }
@@ -95,25 +128,27 @@ export const DB = {
 
   async getReports() {
     try {
-      return await query(`SELECT * FROM reports ORDER BY created_at DESC`);
+      return db.prepare(`SELECT * FROM reports ORDER BY created_at DESC`).all();
     } catch { return []; }
   },
 
   async getReportsByUser(userId) {
     try {
-      return await query(
-        `SELECT * FROM reports WHERE user_id = $1 ORDER BY created_at DESC`,
-        [userId]
-      );
+      return db.prepare(
+        `SELECT * FROM reports WHERE user_id = ? ORDER BY created_at DESC`
+      ).all(userId);
     } catch { return []; }
   },
 
   async deleteReport(id, { userId, isAdmin }) {
     try {
-      const rows = isAdmin
-        ? await query(`DELETE FROM reports WHERE id = $1 RETURNING id`, [id])
-        : await query(`DELETE FROM reports WHERE id = $1 AND user_id = $2 RETURNING id`, [id, userId]);
-      if (!rows.length) return { ok: false, msg: 'Denúncia não encontrada ou sem permissão.' };
+      const result = isAdmin
+        ? db.prepare(`DELETE FROM reports WHERE id = ?`).run(id)
+        : db.prepare(`DELETE FROM reports WHERE id = ? AND user_id = ?`).run(id, userId);
+
+      if (result.changes === 0) {
+        return { ok: false, msg: 'Denúncia não encontrada ou sem permissão.' };
+      }
       return { ok: true };
     } catch (e) {
       return { ok: false, msg: e.message };
