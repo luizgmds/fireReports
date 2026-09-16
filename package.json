@@ -4,8 +4,8 @@
   "description": "",
   "main": "auth.js",
   "scripts": {
-    "start": "node --env-file=.env server.js",
-    "dev": "node --env-file=.env --watch server.js"
+  "start": "node --env-file=.env firereports-backend/server.js",
+  "dev": "node --env-file=.env --watch firereports-backend/server.js"
   },
   "keywords": [],
   "author": "",
