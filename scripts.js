@@ -2,7 +2,7 @@
 const map = L.map('map').setView([-16.67, -49.25], 13);
 
 let lightMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
-let darkMap  = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png');
+let darkMap = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png');
 lightMap.addTo(map);
 
 if (localStorage.getItem('theme') === 'dark') {
