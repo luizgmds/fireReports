@@ -197,9 +197,6 @@
   <script src="api.js"></script>
   <script src="auth.js"></script>
   <script>
-    // Proteção: só admin acessa
-    if (!DB.isAdmin()) { window.location.href = 'index.html'; }
-
     const levelLabel = { '1': 'Baixo', '2': 'Médio', '3': 'Alto' };
     const levelClass = { '1': 'badge-baixo', '2': 'badge-medio', '3': 'badge-alto' };
 
@@ -321,6 +318,14 @@
 
     // ── INICIALIZAR ──────────────────────────────────────────
     async function init() {
+      // Confirma a sessão com o servidor ANTES de checar se é admin —
+      // sem isso, DB.isAdmin() sempre vê "deslogado" e chuta pra fora.
+      const session = await DB.loadSession();
+      if (!session || session.role !== 'admin') {
+        window.location.href = 'index.html';
+        return;
+      }
+
       allReports = await DB.getReports();
       updateSummary();
       renderReports('all');
