@@ -16,7 +16,7 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new DatabaseSync(DB_PATH);
 
-
+// ── ESQUEMA (criado automaticamente se não existir) ────────────
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id         TEXT PRIMARY KEY,
@@ -70,9 +70,15 @@ export const DB = {
       const hash = await bcrypt.hash(password, 10);
       const id   = newId();
 
+      // Se o e-mail cadastrado bater com ADMIN_EMAIL (variável de ambiente),
+      // essa conta já nasce como admin — útil quando não há como rodar
+      // promote.js manualmente (ex: hospedagem sem acesso a terminal).
+      const role = (process.env.ADMIN_EMAIL && email === process.env.ADMIN_EMAIL)
+        ? 'admin' : 'user';
+
       db.prepare(
-        `INSERT INTO users (id, name, email, cpf, password) VALUES (?, ?, ?, ?, ?)`
-      ).run(id, name, email, cpf, hash);
+        `INSERT INTO users (id, name, email, cpf, password, role) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(id, name, email, cpf, hash, role);
 
       const user = db.prepare(`SELECT ${PUBLIC_USER_COLS} FROM users WHERE id = ?`).get(id);
       return { ok: true, user };
@@ -100,6 +106,17 @@ export const DB = {
     try {
       return db.prepare(`SELECT ${PUBLIC_USER_COLS} FROM users WHERE id = ?`).get(id) || null;
     } catch { return null; }
+  },
+
+  async promoteToAdmin(email) {
+    try {
+      const result = db.prepare(`UPDATE users SET role = 'admin' WHERE email = ?`).run(email);
+      return result.changes > 0
+        ? { ok: true }
+        : { ok: false, msg: 'E-mail não encontrado.' };
+    } catch (e) {
+      return { ok: false, msg: e.message };
+    }
   },
 
   async getAllUsers() {

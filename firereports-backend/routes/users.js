@@ -75,4 +75,19 @@ router.get('/users/:id', requireAuth, async (req, res) => {
   res.json(await DB.getUserById(req.params.id));
 });
 
+// ── PROMOÇÃO TEMPORÁRIA PARA ADMIN ─────────────────────────
+// Rota protegida por senha (ADMIN_SECRET no .env / Render), só pra usar
+// uma vez quando não há acesso a terminal no ambiente de hospedagem.
+// REMOVA esta rota depois de usá-la, por segurança.
+router.get('/promote', async (req, res) => {
+  const { email, secret } = req.query;
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ ok: false, msg: 'Senha incorreta ou não configurada.' });
+  }
+  if (!email) return res.status(400).json({ ok: false, msg: 'Informe ?email=' });
+
+  const r = await DB.promoteToAdmin(email);
+  res.status(r.ok ? 200 : 404).json(r);
+});
+
 export default router;
